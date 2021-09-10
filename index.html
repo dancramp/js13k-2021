@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>js13k-21</title>
+    <style>
+      html {
+        background: black;
+      }
+      body,
+      html {
+        position: fixed;
+      }
+      body {
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+				-webkit-touch-callout: none !important;
+        margin: 0;
+        overflow: hidden;
+      }
+      canvas {
+        background: linear-gradient(45deg, #1D2951 0% 20%, #003B59);
+        margin: 0;
+        padding: 0;
+        border: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas class="myCanvas">
+      <p>Canvas support required.</p>
+    </canvas>
+
+    <script>
+
+      const canvas = document.querySelector('.myCanvas');
+      const ctx = canvas.getContext('2d');
+
+      //start audio
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioContext();
+      const volumeGain = audioCtx.createGain();
+      volumeGain.connect(audioCtx.destination);
+      volumeGain.gain.value = 0.1;
+
+      //pentatonics:
+      //let bgnotes = [110, 130.81, 146.83, 164.81, 196, 220];
+      //let cnotes = [440, 523.25, 587.33, 659.25, 783.99, 880];
+      //full scale:
+      //let bgnotes = [220, 246.94, 261.63, 293.66, 329.63, 349.23, 392, 440];
+      //let cnotes = [440, 493.88, 523.25, 587.33, 622.25, 659.25, 698.46, 783.99, 880];
+      //12 note scale:
+      let bgnotes = [220, 233.08, 246.94, 261.63, 277.18,  293.66, 311.13, 329.63, 349.23, 369.99, 392, 415.30, 440];
+      let cnotes = [440, 466.16, 493.88, 523.25, 554.37, 587.33, 622.25, 659.25, 698.46, 739.99, 783.99, 830.61, 880];
+      let nativeWidth = 64;
+      let nativeHeight = 64;
+
+      //for debugging the level
+      //nativeWidth = 256; nativeHeight = 256;
+
+      let deviceWidth = window.innerWidth;
+      let deviceHeight = window.innerHeight;
+
+      let scaleFitNative = Math.min(deviceWidth / nativeWidth, deviceHeight / nativeHeight);
+
+      let mouseDown=false;
+      let mouseMove=false;
+      let state="start";
+      let drawjoy=false;
+      let angle=0;
+      let joydistance=0;
+
+      let vx=0;
+      let vy=0
+      let worldX=0;
+      let worldY=0;
+      let oldworldX=0;
+      let oldworldY=0;
+      let friction=0.99;
+      let maxspeed=20;
+
+      let background = [];
+      let collectibles=[];
+      let enemies=[];
+      let tailcomponent = [];
+      let rectangles = [];
+      let levelwalls = [];
+      let killerwalls = [];
+      let wbx=0;
+      let wby=0;
+      let wbw=0;
+      let wbh=0;
+      let commonunit=0;
+      let score=0;
+      let remaining=0;
+
+      let level = 1;
+
+      canvas.width = deviceWidth;
+      canvas.height = deviceHeight;
+
+      //controls
+      canvas.addEventListener('touchstart', (e) => {
+        joystartx = e.touches[0].clientX; joystarty = e.touches[0].clientY; joystart(); e.preventDefault();
+      });
+      canvas.addEventListener('touchmove', (e) => {
+        joyendx = e.changedTouches[0].pageX; joyendy = e.changedTouches[0].pageY; joymove(); e.preventDefault();
+      });
+      canvas.addEventListener('touchend', joyEnd);
+      canvas.addEventListener('mousedown', (e) => {
+        joystartx = e.clientX; joystarty = e.clientY; joystart();
+      });
+      canvas.addEventListener('mousemove', (e) => {
+        joyendx = e.clientX; joyendy = e.clientY; joymove();
+      });
+      canvas.addEventListener('mouseleave', joyEnd);
+      canvas.addEventListener('mouseup', joyEnd);
+
+      function joystart() {
+        if (state==="start") {
+          playNote(0,0,0,0,0);
+          joyEnd();
+          setTimeout(function(){state="levelstart";},5)
+          
+        }
+        if (state==="levelstart") {
+          score=0;
+          worldX=0;
+          worldY=0;
+          levels();
+          vx=0;
+          vy=0;
+          joydistance = 0;
+          starttime=new Date();
+          state="game";
+        }
+        if (state==="game") {
+          joyendx = joystartx;
+          joyendy = joystarty;
+          mouseMove=false;
+          mouseDown = true;
+          drawjoy = true;
+        }
+        if (state==="gameover") {
+          worldX=0;
+          worldY=0;
+          createBg();
+          state="start";
+        }
+        if (state==="win") {
+          worldX=0;
+          worldY=0;
+          createBg();
+          state="levelstart";
+        }
+
+      }
+
+      function joymove() {
+        mouseMove=true;
+        if (mouseDown === true) {
+          targetX  = joyendx - joystartx;
+          targetY  = joyendy - joystarty;
+          //calculate angle
+          angle = Math.atan2(targetY, targetX);
+          //calculate distance
+          joydistance = Math.sqrt((joystartx-joyendx) * (joystartx - joyendx) + (joystarty-joyendy) * (joystarty-joyendy));
+
+          joydistance=joydistance;
+
+          //limit distance to limit speed
+          if (joydistance>maxspeed) {
+            joydistance=maxspeed;
+          }
+        }
+      }
+
+      function joyEnd () {
+        //remove mouse/touch
+        mouseDown = false;
+        mouseMove = false;
+        drawjoy = false;
+        moving = false;
+      }
+
+      function drawjoystick() {
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = "white";
+        //joystick base
+        ctx.beginPath();
+        ctx.arc(
+          (joystartx-(deviceWidth/2))/scaleFitNative,
+          (joystarty-(deviceHeight/2))/scaleFitNative,
+          4,0,2 * Math.PI);
+        ctx.fill();
+        
+        //joystick knob
+        ctx.beginPath();
+        ctx.arc(
+          (joyendx-(deviceWidth/2))/scaleFitNative,
+          (joyendy-(deviceHeight/2))/scaleFitNative,
+          2,0,2 * Math.PI);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      //player
+      let p = new pc();
+
+      function pc () {
+        this.width = 1;
+        this.speed = 1;
+        this.x = 0;
+        this.y = 0;
+        this.update = function () {
+
+          rectangles.forEach(obj => {
+            obj.collision();
+          });
+
+          //body
+          ctx.fillStyle = "black";
+          ctx.beginPath();
+          ctx.arc(0,0,this.width,0,2 * Math.PI);
+          ctx.fill();
+
+          
+          //tail
+          tailcomponent.push(new tail(p.x-worldX, p.y-worldY));
+          tailcomponent.forEach(tail => {
+            tail.update();
+          });
+
+          //eye
+          ctx.fillStyle = "white";
+          ctx.beginPath();
+          ctx.arc(this.x+(Math.cos(angle)*((this.width/2)*joydistance/16)),this.y+(Math.sin(angle)*((this.width/2)*joydistance/16)),this.width/4,0,2 * Math.PI);
+          ctx.fill();
+        }
+      }
+
+      function tail (x,y) {
+        this.width = p.width;
+        this.x = x;
+        this.y = y;
+        this.maxLife=100;
+        this.life=0;
+        this.update = function () {
+          ctx.fillStyle = "black";
+          ctx.beginPath();
+          ctx.arc(worldX+this.x,worldY+this.y,this.width,0,2 * Math.PI);
+          ctx.fill();
+          this.life++;
+          if (this.life >= this.maxLife) {
+            //delete this tail bit after end of life;
+            tailcomponent.shift();
+          }
+          this.width=this.width-(p.width/(this.maxLife));
+        }
+      }
+
+      function killercircle(width,x,y,dx,dy) {
+      //function killercircle(width,x,y) {
+        this.width = width;
+        this.x = x;
+        this.y = y;
+        
+        this.dx = dx;
+        this.dy = dy;
+
+        this.isplaying=false;
+        this.update = function () {
+
+          //collide with level bounds
+          if (this.x < wbx+2) {
+            this.dx=-this.dx;
+          }
+          if (this.x > wbx+wbw-2) {
+            this.dx=-this.dx;
+          }
+          if (this.y < wby+2) {
+            this.dy=-this.dy;
+          }
+          if (this.y > wby+wbh-2) {
+            this.dy=-this.dy;
+          }
+
+          //collide with walls
+          rectangles.forEach(obj => {
+            collide2(obj,this);
+            let side=collide2(obj,this);
+            if (side==="top" || side==="bottom"){
+              this.dy=-this.dy;
+            }
+            if (side==="right" || side==="left"){
+              this.dx=-this.dx;
+            }
+          });
+
+          this.x = this.x+this.dx;
+          this.y = this.y+this.dy;
+          ctx.fillStyle = "firebrick";
+          ctx.beginPath();
+          ctx.arc(worldX+this.x,worldY+this.y,this.width,0,2 * Math.PI);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          if (circlecollision(this,p)) {
+            state="gameover"
+            if (this.isplaying===false) {
+              this.isplaying=true;
+            }
+          } else {
+            this.isplaying=false;
+          }
+        }
+      }
+
+      function collectible (width,x,y) {
+        this.width = width;
+        this.x = x;
+        this.y = y;
+
+        this.isplaying=false;
+        this.note=cnotes[Math.floor(Math.random()*cnotes.length)];
+        this.update = function () {
+          ctx.fillStyle = "gold";
+          ctx.beginPath();
+          ctx.arc(worldX+this.x,worldY+this.y,this.width,0,2 * Math.PI);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+
+          //collide with others
+          rectangles.forEach(obj => {
+            collide2(obj,this);
+            let side=collide2(obj,this);
+            if (side==="top" || side==="right" || side==="bottom" || side==="left") {
+              score++;
+              delete this.x;
+            }
+          });
+
+          if (circlecollision(this,p)) {
+            score++;
+            delete this.x;
+
+            if (this.isplaying===false) {
+              //(note,attack,sustain,release,length)
+              playNote(this.note,0.01,0.5,0.25,0.5);
+              //if we need major/minor:
+              /*
+              if (this.note===440 || this.note===587.33 || this.note===659.25 || this.note===880) {
+                setTimeout(() => {playNote(this.note*1.19,0.02,0.5,0.25,0.5);}, 150);
+                setTimeout(() => {playNote(this.note*1.5,0.01,0.5,0.25,0.5);}, 300);
+                setTimeout(() => {playNote(this.note*2,0.01,0.5,0.25,0.5);}, 450);
+              } else if (this.note===493.88) {
+                setTimeout(() => {playNote(this.note*1.19,0.02,0.5,0.25,0.5);}, 150);
+                setTimeout(() => {playNote(this.note*1.414,0.01,0.5,0.25,0.5);}, 300);
+                setTimeout(() => {playNote(this.note*2,0.01,0.5,0.25,0.5);}, 450);
+              } else {
+                setTimeout(() => {playNote(this.note*1.25,0.02,0.5,0.25,0.5);}, 150);
+                setTimeout(() => {playNote(this.note*1.5,0.01,0.5,0.25,0.5);}, 300);
+                setTimeout(() => {playNote(this.note*2,0.01,0.5,0.25,0.5);}, 450);
+              }
+              */
+              
+              //arpeggio the note - the pitch isn't perfect...
+
+              
+              setTimeout(() => {playNote(this.note*1.5,0.01,0.5,0.25,0.5);}, 150);
+              setTimeout(() => {playNote(this.note*2,0.01,0.5,0.25,0.5);}, 300);
+              
+
+              this.isplaying=true;
+            }
+          } else {
+            this.isplaying=false;
+          }
+        }
+      }
+
+      function circles (width,x,y) {
+        this.width = width;
+        this.x = x;
+        this.y = y;
+
+        this.dx = (Math.random() * 0.02) -0.01;
+        this.dy = (Math.random() * 0.02) -0.01;
+
+        this.isplaying=false;
+        this.note=bgnotes[Math.floor(Math.random()*bgnotes.length)];
+        this.update = function () {
+          
+          if (this.x > -worldX+(canvas.width/scaleFitNative/2)) {
+            this.x=-worldX-(canvas.width/scaleFitNative/2);
+          }
+          if (this.x < -worldX-(canvas.width/scaleFitNative/2)) {
+            this.x=-worldX+(canvas.width/scaleFitNative/2);
+          }
+          if (this.y > -worldY+(canvas.height/scaleFitNative/2)) {
+            this.y=-worldY-(canvas.height/scaleFitNative/2);
+          }
+          if (this.y < -worldY-(canvas.height/scaleFitNative/2)) {
+            this.y=-worldY+(canvas.height/scaleFitNative/2)
+          }
+
+          this.x = this.x+this.dx;
+          this.y = this.y+this.dy;
+          ctx.globalAlpha = 0.2;
+          ctx.fillStyle = "white";
+          ctx.beginPath();
+          ctx.arc(worldX+this.x,worldY+this.y,this.width,0,2 * Math.PI);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          if (circlecollision(this,p)) {
+            if (this.isplaying===false) {
+            playNote(this.note,1,0.5,1,2);
+            this.isplaying=true;
+            }
+          } else {
+            this.isplaying=false;
+          }
+        }
+      }
+
+      function circlecollision (obj1,obj2) {
+        let circle1 = {radius:obj1.width, x:obj1.x, y:obj1.y};
+        let circle2 = {radius:obj2.width, x:obj2.x-worldX, y:obj2.y-worldY};
+
+        let dx = circle1.x - circle2.x;
+        let dy = circle1.y - circle2.y;
+        let distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < circle1.radius + circle2.radius) {
+          // collision detected!
+          return true;
+        }
+      }
+
+      //objects
+      function rect (width,height,colour,x,y) {
+        this.width = width;
+        this.height = height;
+        this.colour = colour;
+        this.x = x;
+        this.y = y;
+        this.update = function () {
+          ctx.fillStyle = this.colour;
+          ctx.fillRect(this.x+worldX,this.y+worldY,this.width,this.height);
+        }
+        this.collision = function() {
+          //collision with walls - this is over convoluted as I'm a noob...
+          collide(this,p);
+          let side=collide(this,p);
+          //reverse side
+          if (side==="none") {
+          }
+          if (side==="top"){
+            if (oldworldY>worldY) {
+              oldworldY=worldY;
+            }
+            worldY=oldworldY;
+          }
+          if (side==="right"){
+            if (oldworldX<worldX) {
+              oldworldX=worldX;
+            }
+            worldX=oldworldX;
+          }
+          if (side==="bottom"){
+            if (oldworldY<worldY) {
+              oldworldY=worldY;
+            }
+            worldY=oldworldY;
+          }
+          if (side==="left"){
+            if (oldworldX>worldX) {
+              oldworldX=worldX;
+            }
+            worldX=oldworldX;
+          }
+        }
+      }
+
+      function killerrect (width,height,colour,x,y) {
+        this.width = width;
+        this.height = height;
+        this.colour = "firebrick";
+        this.x = x;
+        this.y = y;
+        this.update = function () {
+          ctx.fillStyle = this.colour;
+          ctx.fillRect(this.x+worldX,this.y+worldY,this.width,this.height);
+        }
+        this.collision = function() {
+          collide(this,p);
+          let side=collide(this,p);
+          if (side==="top" || side==="right" || side==="bottom" || side==="left"){
+            state="gameover"
+          }
+        }
+      }
+      
+      function levels() {
+        //there will be an easier way of doing the levels - putting the function to create in another function...
+        tailcomponent=[];
+        rectangles=[];
+        enemies=[];
+        collectibles=[];
+        //level 1
+        if (level===1) {
+          //worldbounds
+          wbx=-3*16;
+          wby=-3*16;
+          wbw=6*16;
+          wbh=6*16;
+
+          rectangles=[];
+          levelwalls=[];
+          killerwalls=[];
+          collectibles = [];
+          enemies = [];
+          
+          let NUM_COLS = 3;
+          let NUM_ROWS = 3;
+          for (let i = 0; i < NUM_COLS; i++) {
+            for (let j = 0; j < NUM_ROWS; j++) {
+              let width = 2;
+              let x = (i*32)+wbx+16;
+              let y = (j*32)+wbx+16;
+              if (x===0 && y===0) {
+                x=wbw;
+                score++;
+              }
+              collectibles.push(new collectible(width, x, y))
+            }
+          }
+        }
+
+        //level 2
+        if (level===2) {
+          //worldbounds
+          wbx=-3*16;
+          wby=-3*16;
+          wbw=6*16;
+          wbh=6*16;
+
+          rectangles=[];
+          levelwalls=[];
+          killerwalls=[];
+          collectibles = [];
+
+          enemies = [];
+          enemies.push(new killercircle(2, 1*16, 0, 0, 0.5))
+          enemies.push(new killercircle(2, -1*16, 0, 0, -0.5))
+          enemies.push(new killercircle(2, 0, 1*16, -0.5, 0))
+          enemies.push(new killercircle(2, 0, -1*16, 0.5, 0))
+          
+          let NUM_COLS = 3;
+          let NUM_ROWS = 3;
+          for (let i = 0; i < NUM_COLS; i++) {
+            for (let j = 0; j < NUM_ROWS; j++) {
+              let width = 2;
+              let x = (i*32)+wbx+16;
+              let y = (j*32)+wbx+16;
+              if (x===0 && y===0) {
+                x=wbw;
+                score++;
+              }
+              collectibles.push(new collectible(width, x, y))
+            }
+          }
+        }
+
+        //level 3
+        if (level===3) {
+          wbx=-6.5*16;
+          wby=-6.5*16;
+          wbw=13*16;
+          wbh=13*16;
+
+          levelwalls=[];
+
+          levelwalls = [
+            {x:0,y:0 ,c:"black" ,w:4, h:4},
+            {x:9,y:0 ,c:"black" ,w:4, h:4},
+            {x:0 ,y:9 ,c:"black" ,w:4, h:4},
+            {x:9 ,y:9 ,c:"black" ,w:4, h:4},
+          ];
+          
+          for (let i = 0; i < levelwalls.length; i++) {
+            let width = levelwalls[i].w*16;
+            let height = levelwalls[i].h*16;
+            let colour = levelwalls[i].c;
+            let x = (levelwalls[i].x)*16-(wbw/2);
+            let y = (levelwalls[i].y)*16-(wbh/2);
+            rectangles.push(new rect(width, height, colour, x, y))
+          }
+
+          killerwalls=[];
+          
+          killerwalls = [
+            {x:5 ,y:1 ,c:"red" ,w:3, h:3},
+            {x:1 ,y:5 ,c:"red" ,w:3, h:3},
+            {x:5 ,y:9 ,c:"red" ,w:3, h:3},
+            {x:9 ,y:5 ,c:"red" ,w:3, h:3},
+          ];
+          
+          for (let i = 0; i < killerwalls.length; i++) {
+            let width = killerwalls[i].w*16;
+            let height = killerwalls[i].h*16;
+            let colour = killerwalls[i].c;
+            let x = (killerwalls[i].x)*16-(wbw/2);
+            let y = (killerwalls[i].y)*16-(wbh/2);
+            rectangles.push(new killerrect(width, height, colour, x, y))
+          }
+          
+
+          collectibles = [];
+          
+          let NUM_COLS = 7;
+          let NUM_ROWS = 7;
+          for (let i = 0; i < NUM_COLS; i++) {
+            for (let j = 0; j < NUM_ROWS; j++) {
+              let width = 2;
+              let x = (i*32)+wbx+8;
+              let y = (j*32)+wbx+8;
+              collectibles.push(new collectible(width, x, y))
+            }
+          }
+        }
+
+        //level 4
+        //this should be extended slightly maybe?
+        if (level===4) {
+          wbx=-1.5*16;
+          wby=-2.5*16;
+          wbw=17*16;
+          wbh=5*16;
+
+          rectangles=[];
+
+          levelwalls=[];
+          levelwalls = [
+            {x:0,y:0 ,c:"black" ,w:3, h:1},
+            {x:0,y:4 ,c:"black" ,w:3, h:1},
+            {x:3 ,y:0 ,c:"black" ,w:3, h:2},
+            {x:3 ,y:3 ,c:"black" ,w:3, h:2},
+            {x:14 ,y:0 ,c:"black" ,w:1, h:1},
+            {x:14 ,y:4 ,c:"black" ,w:1, h:1},
+            {x:15 ,y:0 ,c:"black" ,w:2, h:2},
+            {x:15 ,y:3 ,c:"black" ,w:2, h:2},
+          ];
+          
+          for (let i = 0; i < levelwalls.length; i++) {
+            let width = levelwalls[i].w*16;
+            let height = levelwalls[i].h*16;
+            let colour = levelwalls[i].c;
+            let x = (levelwalls[i].x)*16+wbx;
+            let y = (levelwalls[i].y)*16+wby;
+            rectangles.push(new rect(width, height, colour, x, y))
+          }
+
+          killerwalls=[];
+          
+          killerwalls = [
+            {x:11 ,y:0 ,c:"red" ,w:3, h:2},
+            {x:11, y:3 ,c:"red" ,w:3, h:2},
+          ];
+          
+          for (let i = 0; i < killerwalls.length; i++) {
+            let width = killerwalls[i].w*16;
+            let height = killerwalls[i].h*16;
+            let colour = killerwalls[i].c;
+            let x = (killerwalls[i].x)*16+wbx;
+            let y = (killerwalls[i].y)*16+wby;
+            rectangles.push(new killerrect(width, height, colour, x, y))
+          }
+
+          enemies = [];
+          enemies.push(new killercircle(2, 13*16, 0, 0, 0.5))
+          enemies.push(new killercircle(2, 1*16, 0, 0, 0.5))
+          enemies.push(new killercircle(2, -1*16, 0, 0, -0.5))
+          enemies.push(new killercircle(2, 0, 1*16, -0.5, 0))
+          enemies.push(new killercircle(2, 0, -1*16, 0.5, 0))
+          enemies.push(new killercircle(2, 8*16, 0, 0, 0.5))
+          enemies.push(new killercircle(2, 6*16, 0, 0, -0.5))
+          enemies.push(new killercircle(2, 7*16, 1*16, -0.5, 0))
+          enemies.push(new killercircle(2, 7*16, -1*16, 0.5, 0))
+
+          collectibles = [];
+          
+          let NUM_COLS = 9;
+          let NUM_ROWS = 3;
+          for (let i = 0; i < NUM_COLS; i++) {
+            for (let j = 0; j < NUM_ROWS; j++) {
+              let width = 2;
+              let x = (i*32)+wbx+8;
+              let y = (j*32)+wby+8;
+              if (x<32) {
+                x=-wbw;
+                score++;
+              }
+              collectibles.push(new collectible(width, x, y))
+            }
+          }
+        }
+
+        //level 5
+        if (level===5) {
+          wbx=-7.5*16;
+          wby=-7.5*16;
+          wbw=15*16;
+          wbh=15*16;
+
+          levelwalls=[];
+
+          levelwalls = [
+            /*
+            {x: 0,y:0 ,c:"black" ,w:6, h:6},
+            {x: 9,y:0 ,c:"black" ,w:6, h:6},
+            {x: 0,y:9 ,c:"black" ,w:6, h:6},
+            {x: 9,y:9 ,c:"black" ,w:6, h:6},
+
+            {x: 6,y:3 ,c:"black" ,w:1, h:1},
+            {x: 8,y:3 ,c:"black" ,w:1, h:1},
+
+            {x: 6,y:11 ,c:"black" ,w:1, h:1},
+            {x: 8,y:11 ,c:"black" ,w:1, h:1},
+
+            {x: 3,y:6 ,c:"black" ,w:1, h:1},
+            {x: 3,y:8 ,c:"black" ,w:1, h:1},
+
+            {x: 11,y:6 ,c:"black" ,w:1, h:1},
+            {x: 11,y:8 ,c:"black" ,w:1, h:1},
+            */
+
+            {x:7,y:1 ,c:"black" ,w:1, h:1},
+            {x:7, y:13 ,c:"black" ,w:1, h:1},
+            {x:1,y:7 ,c:"black" ,w:1, h:1},
+            {x:13, y:7 ,c:"black" ,w:1, h:1},
+          ];
+          
+          for (let i = 0; i < levelwalls.length; i++) {
+            let width = levelwalls[i].w*16;
+            let height = levelwalls[i].h*16;
+            let colour = levelwalls[i].c;
+            let x = levelwalls[i].x*16-(wbw/2);
+            let y = levelwalls[i].y*16-(wbh/2);
+            rectangles.push(new rect(width, height, colour, x, y))
+          }
+
+          killerwalls=[];
+          
+          killerwalls = [
+          {x: 0,y:0 ,c:"black" ,w:6, h:6},
+            {x: 9,y:0 ,c:"black" ,w:6, h:6},
+            {x: 0,y:9 ,c:"black" ,w:6, h:6},
+            {x: 9,y:9 ,c:"black" ,w:6, h:6},
+
+            {x: 5,y:3 ,c:"black" ,w:2, h:1},
+            {x: 8,y:3 ,c:"black" ,w:2, h:1},
+
+            {x: 5,y:11 ,c:"black" ,w:2, h:1},
+            {x: 8,y:11 ,c:"black" ,w:2, h:1},
+
+            {x: 3,y:5 ,c:"black" ,w:1, h:2},
+            {x: 3,y:8 ,c:"black" ,w:1, h:2},
+
+            {x: 11,y:5 ,c:"black" ,w:1, h:2},
+            {x: 11,y:8 ,c:"black" ,w:1, h:2},
+
+            //{x:7,y:1 ,c:"red" ,w:1, h:1},
+            //{x:7, y:13 ,c:"red" ,w:1, h:1},
+          ];
+          
+          for (let i = 0; i < killerwalls.length; i++) {
+            let width = killerwalls[i].w*16;
+            let height = killerwalls[i].h*16;
+            let colour = killerwalls[i].c;
+            let x = (killerwalls[i].x)*16+wbx;
+            let y = (killerwalls[i].y)*16+wby;
+            rectangles.push(new killerrect(width, height, colour, x, y))
+          }
+
+          collectibles = [];
+          
+          let NUM_COLS = 8;
+          let NUM_ROWS = 8;
+          for (let i = 0; i < NUM_COLS; i++) {
+            for (let j = 0; j < NUM_ROWS; j++) {
+              let width = 2;
+              let x = (i*32)+wbx+8;
+              let y = (j*32)+wby+8;
+              collectibles.push(new collectible(width, x, y))
+            }
+          }
+
+          enemies = [];
+          enemies.push(new killercircle(2, 7.5*16-(wbw/2), 5.5*16-(wbh/2), 0.5, 0))
+          enemies.push(new killercircle(2, 7.5*16-(wbw/2), 9.5*16-(wbh/2), -0.5, 0))
+          enemies.push(new killercircle(2, 5.5*16-(wbw/2), 7.5*16-(wbh/2), 0, -0.5))
+          enemies.push(new killercircle(2, 9.5*16-(wbw/2), 7.5*16-(wbh/2), 0, 0.5))
+        }
+
+        //level 6
+        if (level===6) {
+          wbx=-120;
+          wby=-120;
+          wbw=240;
+          wbh=240;
+
+          levelwalls=[];
+
+          levelwalls = [
+            {x:-7 ,y:-7 ,c:"black" ,w:5, h:1},
+            {x:-4 ,y:-6 ,c:"black" ,w:1, h:2},
+            {x:-1 ,y:-7 ,c:"black" ,w:1, h:2},
+            {x:-2 ,y:-5 ,c:"black" ,w:3, h:1},
+            {x:1 ,y:-7 ,c:"black" ,w:5, h:1},
+            {x:2 ,y:-6 ,c:"black" ,w:1, h:2},
+            {x:-8 ,y:-5 ,c:"black" ,w:1, h:1},
+            {x:-6 ,y:-5 ,c:"black" ,w:1, h:3},
+            {x:-7 ,y:-3 ,c:"black" ,w:1, h:1},
+            {x:-4 ,y:-3 ,c:"black" ,w:3, h:1},
+            {x:4 ,y:-5 ,c:"black" ,w:1, h:3},
+            {x:5 ,y:-3 ,c:"black" ,w:1, h:1},
+            {x:0 ,y:-3 ,c:"black" ,w:3, h:1},
+            {x:6 ,y:-5 ,c:"black" ,w:1, h:1},
+
+            {x:-8 ,y:-1 ,c:"black" ,w:3, h:1},
+            {x:-4 ,y:-1 ,c:"black" ,w:1, h:1},
+            {x:4 ,y:-1 ,c:"black" ,w:3, h:1},
+            {x:2 ,y:-1 ,c:"black" ,w:1, h:1},
+
+            {x:-7 ,y:5 ,c:"black" ,w:5, h:1},
+            {x:-4 ,y:3 ,c:"black" ,w:1, h:2},
+            {x:-1 ,y:4 ,c:"black" ,w:1, h:2},
+            {x:-2 ,y:3 ,c:"black" ,w:3, h:1},
+            {x:1 ,y:5 ,c:"black" ,w:5, h:1},
+            {x:2 ,y:3 ,c:"black" ,w:1, h:2},
+            {x:-8 ,y:3 ,c:"black" ,w:1, h:1},
+            {x:-6 ,y:2 ,c:"black" ,w:1, h:2},
+            {x:-7 ,y:1 ,c:"black" ,w:2, h:1},
+            {x:-4 ,y:1 ,c:"black" ,w:3, h:1},
+            {x:4 ,y:2 ,c:"black" ,w:1, h:2},
+            {x:4 ,y:1 ,c:"black" ,w:2, h:1},
+            {x:0 ,y:1 ,c:"black" ,w:3, h:1},
+            {x:6 ,y:3 ,c:"black" ,w:1, h:1},
+          ];
+          
+          for (let i = 0; i < levelwalls.length; i++) {
+            let width = levelwalls[i].w*16;
+            let height = levelwalls[i].h*16;
+            let colour = levelwalls[i].c;
+            let x = levelwalls[i].x*16+8;
+            let y = levelwalls[i].y*16+8;
+            rectangles.push(new rect(width, height, colour, x, y))
+          }
+
+          collectibles = [];
+          
+          let NUM_COLS = 8;
+          let NUM_ROWS = 8;
+          for (let i = 0; i < NUM_COLS; i++) {
+            for (let j = 0; j < NUM_ROWS; j++) {
+              let width = 2;
+              let x = (i*32)+wbx+8;
+              let y = (j*32)+wbx+8;
+              collectibles.push(new collectible(width, x, y))
+            }
+          }
+
+          enemies = [];
+        
+          for (let i = 0; i < 10; i++) {
+            let width = 2;
+            let x = (Math.floor(Math.random() * wbw) +wbx)
+            let y = -112
+            let dx = (Math.random() * 1) -0.5;
+            let dy = (Math.random() * 1) -0.5;
+            if (i>4) {
+              y=112;
+            }
+            enemies.push(new killercircle(width, x, y,dx,dy))
+          }
+        }
+
+        //level 7
+
+        //level 8
+
+        //level 9 
+
+        //level 10
+
+      }
+      
+      function collide (r1,r2) {
+        let dx=(r1.x+r1.width/2)-((r2.x)-worldX);
+        let dy=(r1.y+r1.height/2)-((r2.y)-worldY);
+        let width=(r1.width+(r2.width*2))/2;
+        let height=(r1.height+(r2.width*2))/2;
+        let crossWidth=width*dy;
+        let crossHeight=height*dx;
+        let collision='none';
+
+        if(Math.abs(dx)<=width && Math.abs(dy)<=height){
+          if(crossWidth>crossHeight){
+            collision=(crossWidth>(-crossHeight))?'bottom':'left';
+          }else{
+            collision=(crossWidth>-(crossHeight))?'right':'top';
+          }
+        }
+        return(collision);
+      }
+
+      function collide2 (r1,r2) {
+        let dx=(r1.x+r1.width/2)-((r2.x));
+        let dy=(r1.y+r1.height/2)-((r2.y));
+        let width=(r1.width+(r2.width*2))/2;
+        let height=(r1.height+(r2.width*2))/2;
+        let crossWidth=width*dy;
+        let crossHeight=height*dx;
+        let collision='none';
+
+        if(Math.abs(dx)<=width && Math.abs(dy)<=height){
+          if(crossWidth>crossHeight){
+            collision=(crossWidth>(-crossHeight))?'bottom':'left';
+          }else{
+            collision=(crossWidth>-(crossHeight))?'right':'top';
+          }
+        }
+        return(collision);
+      }
+
+      function displayWindowSize() {
+        deviceWidth = window.innerWidth;
+        deviceHeight = window.innerHeight;
+
+        scaleFitNative = Math.min(deviceWidth / nativeWidth, deviceHeight / nativeHeight);
+
+        canvas.width = deviceWidth;
+        canvas.height = deviceHeight;
+
+        if (canvas.width>canvas.height) {
+          commonunit=canvas.width;
+        } else {
+          commonunit=canvas.height;
+        }
+
+        ctx.setTransform(
+          scaleFitNative,0,
+          0,scaleFitNative,
+          Math.floor(deviceWidth/2),
+          Math.floor(deviceHeight/2)
+        );
+
+        createBg();
+
+      }
+
+      function createBg() {
+        background = [];
+        
+        for (let i = 0; i < 100; i++) {
+          let width = Math.random() * (0.2)+0.2;
+          let x = (Math.floor(Math.random() * canvas.width/scaleFitNative)-canvas.width/scaleFitNative/2)-worldX;
+          let y = (Math.floor(Math.random() * canvas.height/scaleFitNative)-canvas.height/scaleFitNative/2)-worldY;
+          background.push(new circles(width, x, y))
+        }
+        
+      }
+
+      function update() {
+        //clear page
+        ctx.clearRect((-canvas.width/2)/scaleFitNative, (-canvas.height/2)/scaleFitNative, canvas.width/scaleFitNative, canvas.height/scaleFitNative);
+
+        if (state==="start") {
+          ctx.font = "4px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.fillText("SPACE WORM!", 0,0);
+          ctx.font = "2px Arial";
+          ctx.fillText("Click/tap to continue.", 0,4);
+        } else if (state==="levelstart") {
+          ctx.font = "4px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.fillText("Level: "+level, 0,-1);
+          ctx.font = "2px Arial";
+          if (level===1) {
+            ctx.fillText("Collect all of the yellow stars.", 0,2);
+            ctx.fillText("Touch screen and drag or use mouse to move.", 0,4);
+          }
+          if (level===2) {
+            ctx.fillText("Red stars will destroy you.", 0,2);
+            ctx.fillText("Your tail is not affected.", 0,4);
+          }
+          if (level===3) {
+            ctx.fillText("Red squares will destroy you.", 0,2);
+            ctx.fillText("You don't want to be an ex-worm...", 0,4);
+          }
+          if (level===4) {
+            ctx.fillText("Let's put these things together.", 0,2);
+            ctx.fillText("Collect all stars, don't be an ex-worm!", 0,4);
+          }
+          if (level===5) {
+            ctx.fillText("Mind the walls!", 0,2);
+            ctx.fillText("You may need to check your speed...", 0,4);
+          }
+          if (level===6) {
+            ctx.fillText("Let's try a maze", 0,2);
+            ctx.fillText("Be careful enemies now roam the map...", 0,4);
+          }
+          ctx.font = "1px Arial";
+          ctx.fillText("Click/tap to continue.", 0,6);
+          
+        } else if (state==="gamecomplete") {
+          ctx.font = "4px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.fillText("CONGRATULATIONS!", 0,0);
+          ctx.font = "2px Arial";
+          ctx.fillText("You completed my little game!", 0,4);
+        } else if (state==="game") {
+          background.forEach(obj => {
+            obj.update();
+          });
+
+          p.update();
+
+          collectibles.forEach(obj => {
+            obj.update();
+          });
+
+          enemies.forEach(obj => {
+            obj.update();
+          });
+
+          rectangles.forEach(obj => {
+            obj.update();
+          });
+
+          ctx.strokeStyle="black";
+          
+          ctx.lineWidth=commonunit/scaleFitNative;
+          ctx.strokeRect(
+            (worldX+wbx)-(commonunit/2)/scaleFitNative,
+            (worldY+wby)-(commonunit/2)/scaleFitNative,
+            wbw+(commonunit)/scaleFitNative,
+            wbh+(commonunit)/scaleFitNative,
+          );
+
+          oldworldX=worldX;
+          oldworldY=worldY;
+
+          if (mouseDown === true && mouseMove===true) {
+            vx = Math.cos(angle)*(joydistance/30);
+            vy = Math.sin(angle)*(joydistance/30);
+          }
+          vx=vx*friction;
+          vy=vy*friction;
+          worldX=worldX-vx;
+          worldY=worldY-vy;
+          
+          //level bounds
+          if (-worldX-p.width<wbx) {
+            worldX=-wbx-p.width;
+          }
+          if (-worldY-p.width<wby) {
+            worldY=-wby-p.width;
+          }
+          if (-worldX+p.width>wbx+wbw) {
+            worldX=-(wbx+wbw)+p.width;
+          }
+          if (-worldY+p.width>wby+wbh) {
+            worldY=-(wby+wbh)+p.width;
+          } 
+
+          if (drawjoy===true) {
+            drawjoystick();
+          }
+
+          //display items remaining:
+          remaining=collectibles.length-score;
+          ctx.font = "4px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "left";
+          ctx.fillText("Stars: "+remaining,
+            ((-deviceWidth/2)+16)/scaleFitNative,
+            ((-deviceHeight/2)+64)/scaleFitNative
+          );
+          if (remaining<=0) {
+            level++
+            if (level===7) {
+              state="gamecomplete";
+            } else {
+              state="win";
+            }
+          }
+
+        } else if (state==="gameover") {
+          ctx.font = "4px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.fillText("Oh no! You got ex-wormed!", 0,0);
+          ctx.font = "2px Arial";
+          ctx.fillText("Click/tap to restart level.", 0,4);
+        } else if (state==="win") {
+          ctx.font = "4px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.fillText("Well done!", 0,0);
+          ctx.font = "2px Arial";
+          ctx.fillText("Click/tap to continue.", 0,4);
+        }
+
+        requestAnimationFrame(update);
+      }
+
+      //function for playing sounds
+      function playNote(note,attackTime,sustainLevel,releaseTime,noteLength) {
+        const osc = audioCtx.createOscillator();
+        const noteGain = audioCtx.createGain();
+        noteGain.gain.setValueAtTime(0, 0);
+        noteGain.gain.linearRampToValueAtTime(sustainLevel, audioCtx.currentTime + attackTime);
+        noteGain.gain.setValueAtTime(sustainLevel, audioCtx.currentTime + noteLength - releaseTime);
+        noteGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + noteLength);
+        osc.type = 'sine';
+        /*
+        if (note<440) {
+          //osc.type = 'sine';
+          osc.type = 'square';
+        } else {
+          //osc.type = 'square';
+          osc.type = 'sine';
+        }
+        */
+        osc.frequency.setValueAtTime(note, 0);
+        osc.start(0);
+        osc.stop(audioCtx.currentTime + noteLength);
+        osc.connect(noteGain);
+        noteGain.connect(volumeGain);
+      }
+
+      window.addEventListener("resize", displayWindowSize());
+      window.onresize = displayWindowSize;
+      update();
+
+    </script>
+  </body>
+</html>
