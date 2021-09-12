@@ -103,7 +103,7 @@
       let spaceWorm_player = new spaceWorm_playerComponent();
 
       //levels
-      let spaceWorm_level = 7;
+      let spaceWorm_level = 1;
 
       spaceWorm_canvas.width = spaceWorm_deviceWidth;
       spaceWorm_canvas.height = spaceWorm_deviceHeight;
@@ -1200,15 +1200,6 @@
         noteGain.gain.setValueAtTime(sustainspaceWorm_level, spaceWorm_audioCtx.currentTime + noteLength - releaseTime);
         noteGain.gain.linearRampToValueAtTime(0, spaceWorm_audioCtx.currentTime + noteLength);
         osc.type = 'sine';
-        /*
-        if (note<440) {
-          //osc.type = 'sine';
-          osc.type = 'square';
-        } else {
-          //osc.type = 'square';
-          osc.type = 'sine';
-        }
-        */
         osc.frequency.setValueAtTime(note, 0);
         osc.start(0);
         osc.stop(spaceWorm_audioCtx.currentTime + noteLength);
