@@ -9,3 +9,9 @@ Influences:
 * Forma 8
 
 Audio is all Webaudio API = collision with the "stars" in the background fires a sine wave in 12 notes.
+
+To-do post jam:
+* Save data (local storage)
+* More levels
+* Energy bar/lives - to aid difficulty
+* Schedule audio properly and create a backbeat
