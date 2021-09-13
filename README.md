@@ -27,3 +27,4 @@ Use an onscreen joystick to move - touch and drag on touch screen or click and d
 2. More levels
 3. Energy bar/lives - to aid difficulty
 4. Schedule audio properly and create a backbeat
+5. Polygon collision
